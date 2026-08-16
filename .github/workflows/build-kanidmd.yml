@@ -42,7 +42,7 @@ jobs:
           context: .
           file: server/Dockerfile
           push: true
-          tags: registry2.initiativeeconomics.dev:5443/populus/kanidm-dev/server:${{ steps.sha8.outputs.sha8 }}
+          tags: registry2.initiativeeconomics.dev:5443/lunarauthority/kanidm-dev/server:${{ steps.sha8.outputs.sha8 }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.repositoryUrl }}
