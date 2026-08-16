@@ -146,6 +146,7 @@ impl IdmServer {
     pub async fn new(
         qs: QueryServer,
         origin: &Url,
+        webauthn_additional_origins: &[Url],
         is_integration_test: bool,
         current_time: Duration,
     ) -> Result<(IdmServer, IdmServerDelayed, IdmServerAudit), OperationError> {
@@ -194,7 +195,37 @@ impl IdmServer {
             return Err(OperationError::InvalidState);
         };
 
+        // Populus modification (kanidm-dev): webauthn_additional_origins lets other
+        // applications on sibling subdomains (not covered by allow_subdomains, which only
+        // widens matching relative to `origin` itself) run Webauthn ceremonies directly.
+        // Each additional origin must still be a descendent of our own rp_id, same as the
+        // primary origin above — this is additive trust, not a way to authorise an
+        // unrelated origin.
+        for additional_origin in webauthn_additional_origins {
+            let valid = additional_origin
+                .domain()
+                .map(|effective_domain| {
+                    effective_domain.ends_with(&format!(".{rp_id}")) || effective_domain == rp_id
+                })
+                .unwrap_or(false);
+            if !valid {
+                admin_error!(
+                    "webauthn_additional_origins entry is not a descendent of server domain name (rp_id). origin: {:?} - rp_id: {:?}",
+                    additional_origin,
+                    rp_id
+                );
+                return Err(OperationError::InvalidState);
+            }
+        }
+
         let webauthn = WebauthnBuilder::new(&rp_id, origin)
+            .map(|builder| {
+                webauthn_additional_origins
+                    .iter()
+                    .fold(builder, |builder, additional_origin| {
+                        builder.append_allowed_origin(additional_origin)
+                    })
+            })
             .and_then(|builder| builder.allow_subdomains(true).rp_name(&rp_name).build())
             .map_err(|e| {
                 admin_error!("Invalid Webauthn Configuration - {:?}", e);

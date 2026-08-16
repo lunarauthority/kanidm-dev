@@ -294,6 +294,11 @@ pub struct ServerConfig {
     domain: Option<String>,
     /// *REQUIRED* - The user-facing HTTPS URL for this server, eg <https://idm.example.com>
     origin: Option<Url>,
+    /// Additional origins to accept for Webauthn operations, beyond `origin` itself
+    /// (and beyond what `allow_subdomains` on `origin` already covers). Useful when other
+    /// applications on sibling subdomains need to run Webauthn ceremonies directly against
+    /// this server rather than through a redirect. Populus modification (kanidm-dev).
+    webauthn_additional_origins: Option<Vec<Url>>,
     /// File path of the database file
     db_path: Option<PathBuf>,
     /// The filesystem type, either "zfs" or "generic". Defaults to "generic" if unset. I you change this, run a database vacuum.
@@ -405,6 +410,8 @@ pub struct ServerConfigV2 {
     version: String,
     domain: Option<String>,
     origin: Option<Url>,
+    /// See `ServerConfig::webauthn_additional_origins`. Populus modification (kanidm-dev).
+    webauthn_additional_origins: Option<Vec<Url>>,
     db_path: Option<PathBuf>,
     db_fs_type: Option<kanidm_proto::internal::FsType>,
     tls_chain: Option<PathBuf>,
@@ -476,6 +483,8 @@ pub struct Configuration {
     pub online_backup: Option<OnlineBackup>,
     pub domain: String,
     pub origin: Url,
+    /// See `ServerConfig::webauthn_additional_origins`. Populus modification (kanidm-dev).
+    pub webauthn_additional_origins: Vec<Url>,
     pub role: ServerRole,
     pub log_level: LogLevel,
     /// Replication settings.
@@ -511,6 +520,7 @@ impl Configuration {
             online_backup: None,
             domain: None,
             origin: None,
+            webauthn_additional_origins: Vec::new(),
             log_level: None,
             role: None,
             repl_config: None,
@@ -538,6 +548,7 @@ impl Configuration {
             domain: "idm.example.com".to_string(),
             origin: Url::from_str("https://idm.example.com")
                 .expect("Failed to parse built-in string as URL"),
+            webauthn_additional_origins: Vec::new(),
             log_level: LogLevel::default(),
             role: ServerRole::WriteReplicaNoUI,
             repl_config: None,
@@ -562,6 +573,17 @@ impl fmt::Display for Configuration {
             None => write!(f, "ldap address: disabled, ")?,
         };
         write!(f, "origin: {} ", self.origin)?;
+        if !self.webauthn_additional_origins.is_empty() {
+            write!(
+                f,
+                "webauthn additional origins: {}, ",
+                self.webauthn_additional_origins
+                    .iter()
+                    .map(|o| o.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )?;
+        }
         write!(f, "admin bind path: {}, ", self.adminbindpath)?;
         write!(f, "thread count: {}, ", self.threads)?;
         write!(
@@ -650,6 +672,7 @@ pub struct ConfigurationBuilder {
     online_backup: Option<OnlineBackup>,
     domain: Option<String>,
     origin: Option<Url>,
+    webauthn_additional_origins: Vec<Url>,
     role: Option<ServerRole>,
     log_level: Option<LogLevel>,
     repl_config: Option<ReplicationConfiguration>,
@@ -824,6 +847,10 @@ impl ConfigurationBuilder {
             self.origin = config.origin;
         }
 
+        if let Some(webauthn_additional_origins) = config.webauthn_additional_origins {
+            self.webauthn_additional_origins = webauthn_additional_origins;
+        }
+
         if config.db_path.is_some() {
             self.db_path = config.db_path;
         }
@@ -902,6 +929,10 @@ impl ConfigurationBuilder {
 
         if config.origin.is_some() {
             self.origin = config.origin;
+        }
+
+        if let Some(webauthn_additional_origins) = config.webauthn_additional_origins {
+            self.webauthn_additional_origins = webauthn_additional_origins;
         }
 
         if config.db_path.is_some() {
@@ -1010,6 +1041,7 @@ impl ConfigurationBuilder {
             mut online_backup,
             domain,
             origin,
+            webauthn_additional_origins,
             role,
             log_level,
             repl_config,
@@ -1075,6 +1107,7 @@ impl ConfigurationBuilder {
             online_backup,
             domain,
             origin,
+            webauthn_additional_origins,
             role,
             log_level,
             repl_config,
