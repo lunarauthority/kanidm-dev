@@ -5,11 +5,21 @@ name: build-kanidmd
 # actual patches live; `main`/`upstream-main` are documentation/reference
 # branches, not build inputs. See README.md's "Populus Modifications"
 # section for what's patched and why.
+#
+# Every build gets a real release tag, `v<upstream-version>-populus.<N>`
+# (upstream-version from Cargo.toml's [workspace.package], N a per-version
+# revision counter derived from existing tags) — not just the sha8, which is
+# an opaque git-hash with no version info and doesn't survive a populus
+# rebase (the commit it points to can become unreachable). sha8 is still
+# pushed alongside it for exact-commit traceability.
 
 on:
   push:
     branches: [populus]
   workflow_dispatch: {}
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -17,14 +27,37 @@ jobs:
 
     outputs:
       sha8: ${{ steps.sha8.outputs.sha8 }}
+      release_tag: ${{ steps.release-tag.outputs.release_tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set SHA8
         id: sha8
         run: echo "sha8=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute and push release tag
+        id: release-tag
+        run: |
+          set -euo pipefail
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/{/^version = "/{s/version = "\(.*\)"/\1/;p}}' Cargo.toml | head -1)
+          if [ -z "$version" ]; then
+            echo "Could not extract [workspace.package].version from Cargo.toml" >&2
+            exit 1
+          fi
+          existing=$(git tag -l "v${version}-populus.*" | wc -l)
+          n=$((existing + 1))
+          release_tag="v${version}-populus.${n}"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
+          git config user.name "ci-bot"
+          git config user.email "ci@lunarauthority.github"
+          git tag -a "${release_tag}" -m "kanidm-dev release ${release_tag} (${GITHUB_SHA::8})"
+          git push origin "${release_tag}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -42,7 +75,10 @@ jobs:
           context: .
           file: server/Dockerfile
           push: true
-          tags: registry2.initiativeeconomics.dev:5443/lunarauthority/kanidm-dev/server:${{ steps.sha8.outputs.sha8 }}
+          tags: |
+            registry2.initiativeeconomics.dev:5443/lunarauthority/kanidm-dev/server:${{ steps.release-tag.outputs.release_tag }}
+            registry2.initiativeeconomics.dev:5443/lunarauthority/kanidm-dev/server:${{ steps.sha8.outputs.sha8 }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.repositoryUrl }}
+            org.opencontainers.image.version=${{ steps.release-tag.outputs.release_tag }}
