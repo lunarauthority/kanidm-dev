@@ -130,6 +130,7 @@ async fn setup_qs_idms(
     let (idms, idms_delayed, idms_audit) = IdmServer::new(
         query_server.clone(),
         &config.origin,
+        &config.webauthn_additional_origins,
         is_integration_test,
         curtime,
     )

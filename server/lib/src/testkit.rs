@@ -101,6 +101,7 @@ pub async fn setup_idm_test(
     IdmServer::new(
         qs,
         &Url::from_str("https://idm.example.com").expect("Failed to parse URL"),
+        &[],
         true,
         duration_from_epoch_now(),
     )
